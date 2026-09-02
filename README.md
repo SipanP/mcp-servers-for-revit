@@ -4,7 +4,7 @@
 
 **Connect AI assistants to Autodesk Revit via the Model Context Protocol.**
 
-mcp-servers-for-revit enables AI clients like Claude, Cline, and other MCP-compatible tools to read, create, modify, and delete elements in Revit projects. It consists of three components: a TypeScript MCP server that exposes tools to AI, a C# Revit add-in that bridges commands into Revit, and a command set that implements the actual Revit API operations.
+mcp-servers-for-revit enables AI clients like Claude, Cline, and other MCP-compatible tools to read, create, modify, and delete elements in Revit projects. It consists of three components: a C# MCP server that exposes tools to AI, a C# Revit add-in that bridges commands into Revit, and a command set that implements the actual Revit API operations.
 
 > [!NOTE]
 > This is a fork of the original [revit-mcp](https://github.com/mcp-servers-for-revit/revit-mcp) project with additional tools and functionality improvements.
@@ -20,17 +20,17 @@ flowchart LR
     Revit["Revit API"]
 
     Client <-->|stdio| Server
-    Server <-->|WebSocket| Plugin
+    Server <-->|JSON-RPC over TCP| Plugin
     Plugin -->|loads| CommandSet
     CommandSet -->|executes| Revit
 ```
 
-The **MCP Server** (TypeScript) translates tool calls from AI clients into WebSocket messages. The **Revit Plugin** (C#) runs inside Revit, listens for those messages, and dispatches them to the **Command Set** (C#), which executes the actual Revit API operations and returns results back up the chain.
+The **MCP Server** (C#) translates tool calls from AI clients into JSON-RPC messages over a TCP socket. The **Revit Plugin** (C#) runs inside Revit, listens for those messages, and dispatches them to the **Command Set** (C#), which executes the actual Revit API operations and returns results back up the chain.
 
 ## Requirements
 
-- **Node.js 18+** (for the MCP server)
-- **Autodesk Revit 2020 - 2026** (any supported version)
+- **Autodesk Revit 2020 - 2027** (any supported version)
+- **Windows** - the MCP server ships as a self-contained executable, so no .NET runtime install is needed
 
 ## Quick Start (Using a Release)
 
@@ -63,14 +63,19 @@ The **MCP Server** (TypeScript) translates tool calls from AI clients into WebSo
 
 ## MCP Server Setup
 
-The MCP server is published as an npm package and can be run directly with `npx`.
+`mcp-server-for-revit.exe` is included in the release ZIP and installed alongside the plugin, so
+there is nothing extra to download. After extracting the release it lives at:
+
+```
+%AppData%\Autodesk\Revit\Addins\<your Revit version>\revit_mcp_plugin\mcp-server-for-revit.exe
+```
 
 **Claude Code**
 
-Run this in a **terminal** (not inside Claude Code):
+Run this in a **terminal** (not inside Claude Code), substituting your Revit version:
 
 ```bash
-claude mcp add mcp-server-for-revit -- cmd /c npx -y mcp-server-for-revit
+claude mcp add mcp-server-for-revit -- "%AppData%\Autodesk\Revit\Addins\2025\revit_mcp_plugin\mcp-server-for-revit.exe"
 ```
 
 **Claude Desktop**
@@ -81,12 +86,14 @@ Claude Desktop → Settings → Developer → Edit Config → `claude_desktop_co
 {
     "mcpServers": {
         "mcp-server-for-revit": {
-            "command": "cmd",
-            "args": ["/c", "npx", "-y", "mcp-server-for-revit"]
+            "command": "C:\\Users\\<you>\\AppData\\Roaming\\Autodesk\\Revit\\Addins\\2025\\revit_mcp_plugin\\mcp-server-for-revit.exe"
         }
     }
 }
 ```
+
+The server talks to the plugin on `localhost:8080`. Override with the `REVIT_MCP_HOST` and
+`REVIT_MCP_PORT` environment variables if you need to.
 
 Restart Claude Desktop. When you see the hammer icon, the MCP server is connected.
 
@@ -146,15 +153,18 @@ The test project uses [Nice3point.TUnit.Revit](https://github.com/Nice3point/Rev
 
 ### Prerequisites
 
-- **.NET 10 SDK** — required by Nice3point.Revit.Sdk 6.1.0. Install via `winget install Microsoft.DotNet.SDK.10`
-- **Autodesk Revit 2026** (or 2025) — must be installed and licensed on your machine
+- **.NET 10 SDK** — required by Nice3point.Revit.Sdk 6.2.3. Install via `winget install Microsoft.DotNet.SDK.10`
+- **Autodesk Revit 2027** (or 2026, or 2025) — must be installed and licensed on your machine
 
 ### Running Tests
 
-1. Open Revit 2026 (or 2025) and wait for it to fully load
+1. Open Revit 2027 (or 2026, or 2025) and wait for it to fully load
 2. Run the tests from the command line:
 
 ```bash
+# For Revit 2027
+dotnet test -c Debug.R27 -r win-x64 tests/commandset
+
 # For Revit 2026
 dotnet test -c Debug.R26 -r win-x64 tests/commandset
 
@@ -225,20 +235,40 @@ public class MyTests : RevitApiTest
 
 ### MCP Server
 
+The server is a .NET 10 console application in `server/`, built on the official
+[C# MCP SDK](https://github.com/modelcontextprotocol/csharp-sdk). It speaks MCP over stdio to the AI
+client and JSON-RPC over a TCP socket to the Revit plugin.
+
 ```bash
-cd server
-npm install
-npm run build
+dotnet build server
+dotnet test tests/server/RevitMcpServer.Tests.csproj
 ```
 
-The server compiles TypeScript to `server/build/`. During development you can run it directly with `npx tsx server/src/index.ts`.
+To produce the executable that ships in a release:
+
+```bash
+dotnet publish server -c Release -r win-x64 \
+  -p:SelfContained=true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+```
+
+Publishing is deliberately **not** trimmed: the MCP SDK builds tool schemas by reflection and a
+trimmed build fails at runtime.
+
+Tool names and their JSON schemas are the server's public contract, so they are snapshotted in
+`tests/server/Fixtures/tool-schemas.json`. After an intentional change, regenerate the snapshot and
+review the diff:
+
+```bash
+REVIT_MCP_UPDATE_SNAPSHOTS=1 dotnet test tests/server/RevitMcpServer.Tests.csproj
+```
 
 ### Revit Plugin + Command Set
 
-Open `mcp-servers-for-revit.sln` in Visual Studio. The solution contains both the plugin and command set projects. Build configurations target Revit 2020-2026:
+Open `mcp-servers-for-revit.sln` in Visual Studio. The solution contains the plugin, command set and MCP server projects. Build configurations target Revit 2020-2027:
 
 - **Revit 2020-2024**: .NET Framework 4.8 (`Release R20` through `Release R24`)
 - **Revit 2025-2026**: .NET 8 (`Release R25`, `Release R26`)
+- **Revit 2027**: .NET 10 (`Release R27`)
 
 Building the solution automatically assembles the complete deployable layout in `plugin/bin/AddIn <year> <config>/` - the command set is copied into the plugin's `Commands/` folder as part of the build.
 
@@ -246,12 +276,13 @@ Building the solution automatically assembles the complete deployable layout in 
 
 ```
 mcp-servers-for-revit/
-├── mcp-servers-for-revit.sln    # Combined solution (plugin + commandset + tests)
+├── mcp-servers-for-revit.sln    # Combined solution (server + plugin + commandset + tests)
 ├── command.json     # Command set manifest
-├── server/          # MCP server (TypeScript) - tools exposed to AI clients
-├── plugin/          # Revit add-in (C#) - WebSocket bridge inside Revit
+├── server/          # MCP server (C#) - tools exposed to AI clients
+├── plugin/          # Revit add-in (C#) - socket bridge inside Revit
 ├── commandset/      # Command implementations (C#) - Revit API operations
-├── tests/           # Integration tests (C#) - TUnit tests against live Revit
+├── tests/server/     # MCP server tests (C#) - TUnit, no Revit needed
+├── tests/commandset/ # Integration tests (C#) - TUnit tests against live Revit
 ├── assets/          # Images for documentation
 ├── .github/         # CI/CD workflows, contributing guide, code of conduct
 ├── LICENSE
@@ -262,13 +293,14 @@ mcp-servers-for-revit/
 
 A single `v*` tag drives the entire release. The [release workflow](.github/workflows/release.yml) automatically:
 
-- Builds the Revit plugin + command set for Revit 2020-2026
+- Runs the MCP server test suite and publishes it as a self-contained `win-x64` executable
+- Builds the Revit plugin + command set for Revit 2020-2027
+- Bundles the server executable into each plugin payload so the two always ship in lockstep
 - Creates a GitHub release with `mcp-servers-for-revit-vX.Y.Z-Revit<year>.zip` assets
-- Publishes the MCP server to npm as [`mcp-server-for-revit`](https://www.npmjs.com/package/mcp-server-for-revit)
 
 To create a release:
 
-1. Run the bump script (updates `server/package.json`, `server/package-lock.json`, and `plugin/Properties/AssemblyInfo.cs`, then commits and tags):
+1. Run the bump script (updates `server/RevitMcpServer.csproj` and `plugin/Properties/AssemblyInfo.cs`, then commits and tags):
    ```powershell
    ./scripts/release.ps1 -Version X.Y.Z
    ```
@@ -277,9 +309,6 @@ To create a release:
    ```bash
    git push origin main --tags
    ```
-
-> [!NOTE]
-> npm publish uses [trusted publishing](https://docs.npmjs.com/trusted-publishers/) via OIDC — no npm token is required. Provenance attestation is generated automatically.
 
 ## Acknowledgements
 
