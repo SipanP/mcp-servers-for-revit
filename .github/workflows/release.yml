@@ -17,11 +17,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 18
-
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -33,13 +28,24 @@ jobs:
         uses: microsoft/setup-msbuild@v2
 
       # ---------------------------------------------------------------
-      # Build MCP Server (TypeScript)
+      # Build and test the MCP server (C#)
+      # Published self-contained so users need no .NET runtime installed.
+      # Trimming is deliberately off: the MCP SDK builds tool schemas by
+      # reflection and a trimmed build fails at runtime.
       # ---------------------------------------------------------------
-      - name: Build MCP Server
-        working-directory: server
-        run: |
-          npm ci
-          npm run build
+      - name: Test MCP Server
+        run: dotnet test tests/server/RevitMcpServer.Tests.csproj -c Release
+
+      - name: Publish MCP Server
+        run: >
+          dotnet publish server/RevitMcpServer.csproj
+          -c Release
+          -r win-x64
+          -p:SelfContained=true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:DebugType=none
+          -o server-publish
 
       # ---------------------------------------------------------------
       # Build Plugin + CommandSet via combined solution
@@ -75,6 +81,20 @@ jobs:
       # The AddIn output already contains the complete deployable layout
       # (plugin + commandset) thanks to the DeployCommandSet build target.
       # ---------------------------------------------------------------
+      - name: Bundle the MCP server into each AddIn payload
+        run: |
+          $revitYears = @("2020", "2021", "2022", "2023", "2024", "2025", "2026", "2027")
+          foreach ($year in $revitYears) {
+            $pluginDir = "plugin/bin/AddIn $year Release R$($year.Substring(2))/revit_mcp_plugin"
+            if (Test-Path $pluginDir) {
+              Copy-Item "server-publish/mcp-server-for-revit.exe" -Destination $pluginDir
+              Write-Host "Bundled server into $pluginDir"
+            } else {
+              Write-Host "Warning: plugin output not found: $pluginDir"
+            }
+          }
+        shell: pwsh
+
       - name: Create release assets
         run: |
           $version = "${{ github.ref_name }}"
@@ -111,29 +131,3 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  npm-publish:
-    runs-on: ubuntu-latest
-    needs: build
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Upgrade npm
-        run: npm install -g npm@latest
-
-      - name: Install and build
-        working-directory: server
-        run: |
-          npm ci
-          npm run build
-
-      - name: Publish to npm
-        working-directory: server
-        run: npm publish --access public

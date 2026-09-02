@@ -1,9 +1,8 @@
 # =============================================================================
-# Node.js / TypeScript (server/)
+# MCP server (server/)
 # =============================================================================
-server/build/
-server/node_modules/
-server/revit-data.db
+server-publish/
+revit-data.db
 
 # =============================================================================
 # Visual Studio / .NET (plugin/ and commandset/)

@@ -1,13 +1,14 @@
 # Scoping: Porting the MCP Server from Node.js to C#
 
-Status: proposal / not yet approved
+Status: implemented. This document is kept as the record of what was decided and why;
+see the pull request that ported `server/` for the delivered result.
 Scope: `server/` only. The Revit plugin (`plugin/`) and command set (`commandset/`) are already C# and are **not** changed by this work.
 
 ---
 
 ## 1. Recommendation in one paragraph
 
-Port `server/` to a .NET 8 console app built on the official
+Port `server/` to a .NET 10 console app built on the official
 [`ModelContextProtocol` C# SDK](https://github.com/modelcontextprotocol/csharp-sdk), keeping the
 existing TCP/JSON-RPC wire contract with the plugin byte-for-byte so **no plugin or command set code
 has to change**. Ship the result as a self-contained `win-x64` executable inside the same release ZIP
@@ -15,6 +16,23 @@ users already install into their Revit addins folder. That removes the Node.js p
 puts the server and plugin on one version, and makes the whole repo a single toolchain. Estimated
 effort: **5–7 focused days** for one developer, and the port is mostly mechanical — 23 real tools,
 each a thin parameter-schema-plus-passthrough wrapper.
+
+---
+
+## 1a. What was actually built
+
+The port landed broadly as scoped. Where reality differed:
+
+- **Target framework is .NET 10**, not .NET 8.
+- **The `server/` folder name was kept** (decision 1), and the project was added to
+  `mcp-servers-for-revit.sln` with all 16 configuration mappings (decision 3).
+- **The C# MCP SDK turned out to be stable at 2.x**, not pre-1.0 as assumed while scoping.
+- **Trimming is off, confirmed by experiment**, not by caution: a trimmed build compiles but fails at
+  runtime, because the SDK builds tool schemas by reflection. The published executable is ~80 MB
+  (~33 MB compressed).
+- **Both servers' tool schemas were captured and diffed** rather than eyeballed. The residual
+  differences are listed in the pull request and are all either deliberate or limitations of
+  `System.Text.Json` schema generation.
 
 ---
 
@@ -89,7 +107,7 @@ Published to npm as `mcp-server-for-revit`; users configure `cmd /c npx -y mcp-s
 ```
 server/                      -> deleted after cutover
 src/RevitMcpServer/          -> new
-  RevitMcpServer.csproj      net8.0, self-contained publish profile for win-x64
+  RevitMcpServer.csproj      net10.0, self-contained publish for win-x64
   Program.cs                 host builder, stdio transport, stderr logging
   Revit/
     RevitClient.cs           TcpClient + JSON-RPC framing (port of SocketClient.ts)
@@ -116,7 +134,7 @@ contents — cheaper for muscle memory and for any external links, and it keeps 
 
 `mcp-servers-for-revit.sln` defines 16 solution configurations (`Debug R20` … `Release R27`) because
 every project is multi-targeted per Revit version. The MCP server runs **outside** Revit and has no
-Revit dependency, so it should target plain `net8.0` with plain `Debug|Release`. Adding it to the sln
+Revit dependency, so it should target plain `net10.0` with plain `Debug|Release`. Adding it to the sln
 means writing 16 `ProjectConfigurationPlatforms` mappings that all point at `Debug|Any CPU` or
 `Release|Any CPU`.
 
@@ -141,8 +159,8 @@ the server can never silently rot when the plugin changes.
 | Logging | `console.error` | `ILogger` with `LogToStandardErrorThreshold` |
 | Tests | none | xunit or TUnit (`global.json` already selects Microsoft.Testing.Platform) |
 
-Note the C# MCP SDK is still pre-1.0 and its API has moved between previews. Pin an exact version and
-budget a small amount of churn on upgrades.
+The C# MCP SDK reached a stable 2.x while this was being scoped, so the pre-1.0 churn risk noted in
+early drafts no longer applies. Pin an exact version regardless.
 
 ### 4.4 Code shape — before and after
 
@@ -208,7 +226,7 @@ against it.
 | --- | --- | --- | --- |
 | **A. Self-contained exe in the release ZIP** ⭐ | none | absolute path to the exe | ~15 MB trimmed / ~60 MB untrimmed. Server and plugin ship and version together. Users already unzip into the addins folder, so it costs them nothing extra. |
 | B. .NET global tool | .NET SDK | `mcp-server-for-revit` | Smallest download, but an SDK — not just a runtime — is a heavier ask than Node was. `dnx` (.NET 10) gives an npx-like one-shot run, but only for users on the .NET 10 SDK. |
-| C. Framework-dependent exe | .NET 8 desktop runtime | absolute path | ~1 MB, but swaps one prerequisite for another. |
+| C. Framework-dependent exe | .NET 10 runtime | absolute path | ~1 MB, but swaps one prerequisite for another. |
 
 **Recommend A**, optionally also publishing B for developers. With A the README config becomes:
 
@@ -265,7 +283,8 @@ cutover. Consider one release that ships **both** servers so early adopters can 
 4. **stdout is the protocol.** Any stray `Console.WriteLine` corrupts the stdio stream. Configure
    `logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace)` in `Program.cs` and add a
    test or analyser rule against `Console.Write*` in the server project.
-5. **MCP C# SDK is pre-1.0.** Pin the version; expect renames between previews.
+5. **MCP C# SDK version.** Pin the exact version so a minor upgrade cannot silently reshape the
+   published tool schemas.
 6. **Hard-coded `localhost:8080`** on both sides. Make it configurable in the new server
    (`REVIT_MCP_HOST` / `REVIT_MCP_PORT`) with the same defaults — costs nothing and unblocks anyone
    running Revit in a VM.

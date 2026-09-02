@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <LangVersion>latest</LangVersion>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <RootNamespace>RevitMcpServer</RootNamespace>
+        <!-- Produces mcp-server-for-revit.exe, matching the old npm bin name. -->
+        <AssemblyName>mcp-server-for-revit</AssemblyName>
+        <Version>1.0.0</Version>
+        <InvariantGlobalization>true</InvariantGlobalization>
+        <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    </PropertyGroup>
+
+    <!--
+      Self-contained publishing is driven from the command line so that a plain
+      `dotnet build` still works without a RuntimeIdentifier:
+        dotnet publish server -c Release -r win-x64 -p:SelfContained=true -p:PublishSingleFile=true
+    -->
+
+    <ItemGroup>
+        <PackageReference Include="ModelContextProtocol" Version="2.2.0"/>
+        <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0"/>
+        <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="RevitMcpServer.Tests"/>
+    </ItemGroup>
+
+</Project>
