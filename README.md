@@ -264,7 +264,13 @@ REVIT_MCP_UPDATE_SNAPSHOTS=1 dotnet test tests/server/RevitMcpServer.Tests.cspro
 
 ### Revit Plugin + Command Set
 
-Open `mcp-servers-for-revit.sln` in Visual Studio. The solution contains the plugin, command set and MCP server projects. Build configurations target Revit 2020-2027:
+Open `mcp-servers-for-revit.sln` in Visual Studio. The solution contains the plugin, command set and MCP server projects.
+
+> [!NOTE]
+> The MCP server projects appear in the solution but are deliberately **not** built by the
+> `R20`-`R27` configurations: the server has no Revit dependency, and Revit 2020-2024 are built with
+> Visual Studio's msbuild, which cannot target `net10.0`. Build the server on its own
+> (`dotnet build server`) or right-click the project in Visual Studio. Build configurations target Revit 2020-2027:
 
 - **Revit 2020-2024**: .NET Framework 4.8 (`Release R20` through `Release R24`)
 - **Revit 2025-2026**: .NET 8 (`Release R25`, `Release R26`)
