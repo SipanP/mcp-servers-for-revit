@@ -80,6 +80,26 @@ jobs:
       # The AddIn output already contains the complete deployable layout
       # (plugin + commandset) thanks to the DeployCommandSet build target.
       # ---------------------------------------------------------------
+      # ---------------------------------------------------------------
+      # Installer
+      # Built before the server is bundled into the ZIP payloads, so the
+      # shared executable is not duplicated once per Revit version.
+      # ---------------------------------------------------------------
+      - name: Assemble installer payload
+        run: ./scripts/build-installer-payload.ps1 -ServerPublishDir server-publish
+        shell: pwsh
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+        shell: pwsh
+
+      - name: Compile installer
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DAppVersion=$version installer\mcp-servers-for-revit.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
+        shell: pwsh
+
       - name: Bundle the MCP server into each AddIn payload
         run: |
           $revitYears = @("2020", "2021", "2022", "2023", "2024", "2025", "2026", "2027")
@@ -126,7 +146,9 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release-assets/*.zip
+          files: |
+            installer-output/*.exe
+            release-assets/*.zip
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

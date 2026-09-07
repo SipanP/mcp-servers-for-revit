@@ -4,6 +4,13 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using RevitMcpServer.Data;
 using RevitMcpServer.Revit;
+using RevitMcpServer.Setup;
+
+// The installation verbs are a plain console program; everything else starts the MCP server.
+if (CliDispatcher.IsVerb(args))
+{
+    return CliDispatcher.Run(args, Console.Out);
+}
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -31,6 +38,7 @@ builder.Services
     .WithToolsFromAssembly();
 
 await builder.Build().RunAsync();
+return 0;
 
 internal static class ThisAssembly
 {

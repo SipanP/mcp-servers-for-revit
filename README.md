@@ -32,7 +32,34 @@ The **MCP Server** (C#) translates tool calls from AI clients into JSON-RPC mess
 - **Autodesk Revit 2020 - 2027** (any supported version)
 - **Windows** - the MCP server ships as a self-contained executable, so no .NET runtime install is needed
 
-## Quick Start (Using a Release)
+## Quick Start (Installer)
+
+1. Download `mcp-servers-for-revit-Setup-vX.Y.Z.exe` from the [Releases](https://github.com/mcp-servers-for-revit/mcp-servers-for-revit/releases) page
+
+2. Run it. It finds your Revit versions, installs the plugin, enables every command, and points
+   Claude Desktop and Claude Code at the server. No administrator rights are needed.
+
+3. Start Revit — if prompted about an unknown add-in, click **Always Load**
+
+4. Restart Claude Desktop
+
+That is the whole setup. To check it afterwards, run **Check my mcp-servers-for-revit setup** from the
+Start Menu, or:
+
+```bash
+"%LocalAppData%\Programs\mcp-servers-for-revit\mcp-server-for-revit.exe" doctor
+```
+
+It reports what is wired up and what is not, and names the fix for anything wrong.
+
+> [!NOTE]
+> The installer is not code-signed yet, so Windows SmartScreen may warn on first run. Choose
+> **More info → Run anyway**. See [installer/README.md](installer/README.md#code-signing).
+
+## Manual Install (Using a Release ZIP)
+
+Prefer this if you want to control exactly what is installed, or you are installing for one Revit
+version only.
 
 1. Download the ZIP for your Revit version from the [Releases](https://github.com/mcp-servers-for-revit/mcp-servers-for-revit/releases) page (e.g., `mcp-servers-for-revit-v1.0.0-Revit2025.zip`)
 
@@ -60,6 +87,12 @@ The **MCP Server** (C#) translates tool calls from AI clients into JSON-RPC mess
 4. Start Revit — if prompted about an unknown add-in, click **Always Load**
 
 5. In Revit, click the **Settings** button on the mcp-servers-for-revit ribbon tab, enable the commands you want to use, and click **Save**
+
+   Or skip this step by letting the server enable everything for you:
+   ```bash
+   "%AppData%\Autodesk\Revit\Addins\2025\revit_mcp_plugin\mcp-server-for-revit.exe" setup
+   ```
+   The same command also writes your AI client configuration, so step 3 becomes unnecessary too.
 
 ## MCP Server Setup
 
@@ -284,6 +317,7 @@ Building the solution automatically assembles the complete deployable layout in 
 mcp-servers-for-revit/
 ├── mcp-servers-for-revit.sln    # Combined solution (server + plugin + commandset + tests)
 ├── command.json     # Command set manifest
+├── installer/       # Inno Setup wizard - one-click install for end users
 ├── server/          # MCP server (C#) - tools exposed to AI clients
 ├── plugin/          # Revit add-in (C#) - socket bridge inside Revit
 ├── commandset/      # Command implementations (C#) - Revit API operations
@@ -301,8 +335,9 @@ A single `v*` tag drives the entire release. The [release workflow](.github/work
 
 - Runs the MCP server test suite and publishes it as a self-contained `win-x64` executable
 - Builds the Revit plugin + command set for Revit 2020-2027
+- Compiles the [installer](installer/README.md) covering every Revit version in one download
 - Bundles the server executable into each plugin payload so the two always ship in lockstep
-- Creates a GitHub release with `mcp-servers-for-revit-vX.Y.Z-Revit<year>.zip` assets
+- Creates a GitHub release with the installer plus `mcp-servers-for-revit-vX.Y.Z-Revit<year>.zip` assets
 
 To create a release:
 
