@@ -32,8 +32,11 @@ jobs:
       # Trimming is deliberately off: the MCP SDK builds tool schemas by
       # reflection and a trimmed build fails at runtime.
       # ---------------------------------------------------------------
+      # TUnit test projects are self-executing Microsoft.Testing.Platform apps. `dotnet test`
+      # reports "Zero tests ran" against them with this SDK, so the app is run directly;
+      # it still builds first and its exit code fails the step.
       - name: Test MCP Server
-        run: dotnet test tests/server/RevitMcpServer.Tests.csproj -c Release
+        run: dotnet run --project tests/server/RevitMcpServer.Tests.csproj -c Release
 
       - name: Publish MCP Server
         run: >
