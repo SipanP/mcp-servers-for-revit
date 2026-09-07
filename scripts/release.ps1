@@ -22,17 +22,11 @@ git reset --hard
 git pull
 Pop-Location
 
-# --- server/package.json ---
-$pkg = Get-Content "$root/server/package.json" -Raw | ConvertFrom-Json
-$pkg.version = $Version
-$pkg | ConvertTo-Json -Depth 10 | Set-Content "$root/server/package.json" -NoNewline
-Write-Host "server/package.json -> $Version"
-
-# --- server/package-lock.json ---
-Push-Location "$root/server"
-npm install --package-lock-only --silent 2>$null
-Pop-Location
-Write-Host "server/package-lock.json -> $Version"
+# --- server/RevitMcpServer.csproj ---
+$csproj = "$root/server/RevitMcpServer.csproj"
+(Get-Content $csproj -Raw) -replace '<Version>[^<]+</Version>', "<Version>$Version</Version>" |
+    Set-Content $csproj -NoNewline
+Write-Host "server/RevitMcpServer.csproj -> $Version"
 
 # --- plugin/Properties/AssemblyInfo.cs ---
 $assemblyInfo = "$root/plugin/Properties/AssemblyInfo.cs"
@@ -45,7 +39,7 @@ Write-Host "plugin/Properties/AssemblyInfo.cs -> $fourPart"
 
 # --- git commit + tag ---
 Push-Location $root
-git add server/package.json server/package-lock.json plugin/Properties/AssemblyInfo.cs
+git add server/RevitMcpServer.csproj plugin/Properties/AssemblyInfo.cs
 git commit -m "$Version"
 git tag "v$Version"
 Pop-Location

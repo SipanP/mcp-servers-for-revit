@@ -1,75 +1,49 @@
 # mcp-server-for-revit
 
-MCP server for interacting with Autodesk Revit through AI assistants like Claude.
-
-This package is the MCP server component of [mcp-servers-for-revit](https://github.com/mcp-servers-for-revit/mcp-servers-for-revit). It exposes Revit operations as MCP tools that AI clients can call. The server communicates with the [Revit plugin](https://github.com/mcp-servers-for-revit/mcp-servers-for-revit) over WebSocket to execute commands inside Revit.
+The MCP server component of [mcp-servers-for-revit](https://github.com/mcp-servers-for-revit/mcp-servers-for-revit).
+It exposes Revit operations as MCP tools that AI clients can call.
 
 > [!NOTE]
-> This server requires the mcp-servers-for-revit Revit plugin to be installed and running inside Revit. See the [full project README](https://github.com/mcp-servers-for-revit/mcp-servers-for-revit) for setup instructions.
+> This server needs the mcp-servers-for-revit Revit plugin installed and running inside Revit. See the
+> [project README](../README.md) for setup instructions.
 
-## Setup
+## How it fits together
 
-**Claude Code**
+```
+AI client  <--- MCP over stdio --->  this server  <--- JSON-RPC over TCP :8080 --->  Revit plugin
+```
+
+Most tools are thin passthroughs: they publish a JSON schema, forward the arguments to the plugin
+under the tool's own command name, and render the reply. Three tools (`store_project_data`,
+`store_room_data`, `query_stored_data`) are answered locally from a SQLite database and never reach
+Revit.
+
+## Layout
+
+| Path | Contents |
+| --- | --- |
+| `Program.cs` | Host setup: stdio transport, stderr logging, DI |
+| `Revit/` | The socket client, the request gate, and the wire contract with the plugin |
+| `Tools/` | One class per MCP tool |
+| `Models/` | Parameter types shared by several tools |
+| `Data/` | The local SQLite store |
+
+## Building
 
 ```bash
-claude mcp add mcp-server-for-revit -- npx -y mcp-server-for-revit
+dotnet build
+dotnet test ../tests/server/RevitMcpServer.Tests.csproj
 ```
 
-**Claude Desktop**
+See the [Development section](../README.md#development) of the project README for publishing and for
+regenerating the tool schema snapshot.
 
-Claude Desktop → Settings → Developer → Edit Config → `claude_desktop_config.json`:
+## Configuration
 
-```json
-{
-    "mcpServers": {
-        "mcp-server-for-revit": {
-            "command": "npx",
-            "args": ["-y", "mcp-server-for-revit"]
-        }
-    }
-}
-```
-
-Restart Claude Desktop. When you see the hammer icon, the MCP server is connected.
-
-## Supported Tools
-
-| Tool | Description |
-| ---- | ----------- |
-| `get_current_view_info` | Get current active view info |
-| `get_current_view_elements` | Get elements from the current active view |
-| `get_available_family_types` | Get available family types in current project |
-| `get_selected_elements` | Get currently selected elements |
-| `get_material_quantities` | Calculate material quantities and takeoffs |
-| `ai_element_filter` | Intelligent element querying tool for AI assistants |
-| `analyze_model_statistics` | Analyze model complexity with element counts |
-| `create_point_based_element` | Create point-based elements (door, window, furniture) |
-| `create_line_based_element` | Create line-based elements (wall, beam, pipe) |
-| `create_surface_based_element` | Create surface-based elements (floor, ceiling, roof) |
-| `create_grid` | Create a grid system with smart spacing generation |
-| `create_level` | Create levels at specified elevations |
-| `create_room` | Create and place rooms at specified locations |
-| `create_dimensions` | Create dimension annotations in the current view |
-| `create_structural_framing_system` | Create a structural beam framing system |
-| `delete_element` | Delete elements by ID |
-| `operate_element` | Operate on elements (select, setColor, hide, etc.) |
-| `color_elements` | Color elements based on a parameter value |
-| `tag_all_walls` | Tag all walls in the current view |
-| `tag_all_rooms` | Tag all rooms in the current view |
-| `export_room_data` | Export all room data from the project |
-| `store_project_data` | Store project metadata in local database |
-| `store_room_data` | Store room metadata in local database |
-| `query_stored_data` | Query stored project and room data |
-| `send_code_to_revit` | Send C# code to Revit to execute |
-| `say_hello` | Display a greeting dialog in Revit (connection test) |
-
-## Development
-
-```bash
-npm install
-npm run build
-```
-
-## License
-
-[MIT](https://github.com/mcp-servers-for-revit/mcp-servers-for-revit/blob/main/LICENSE)
+| Environment variable | Default | Purpose |
+| --- | --- | --- |
+| `REVIT_MCP_HOST` | `localhost` | Host the Revit plugin listens on |
+| `REVIT_MCP_PORT` | `8080` | Port the Revit plugin listens on |
+| `REVIT_MCP_CONNECTTIMEOUTSECONDS` | `5` | TCP connect timeout |
+| `REVIT_MCP_REQUESTTIMEOUTSECONDS` | `120` | How long to wait for a command result |
+| `REVIT_MCP_DATABASEPATH` | `%LocalAppData%\mcp-servers-for-revit\revit-data.db` | Local SQLite database file |

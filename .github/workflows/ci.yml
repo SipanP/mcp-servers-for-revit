@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+# A newer push to the same branch makes an in-flight run redundant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Fast feedback on the part of the codebase that has no Revit dependency.
+  server:
+    name: MCP server
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build
+        run: dotnet build server/RevitMcpServer.csproj -c Release
+
+      # TUnit test projects are self-executing Microsoft.Testing.Platform apps. `dotnet test`
+      # reports "Zero tests ran" against them with this SDK, so the app is run directly;
+      # it still builds first and its exit code fails the step.
+      - name: Test
+        run: dotnet run --project tests/server/RevitMcpServer.Tests.csproj -c Release
+
+  # The Revit projects and the installer are Windows-only, so they get their own job.
+  windows:
+    name: Plugin, command set and installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Publish MCP server
+        run: >
+          dotnet publish server/RevitMcpServer.csproj
+          -c Release
+          -r win-x64
+          -p:SelfContained=true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:DebugType=none
+          -o server-publish
+
+      # Revit 2020-2024 target .NET Framework 4.8 and build with Visual Studio's msbuild;
+      # 2025 onwards build with the .NET SDK. Same split as the release workflow.
+      - name: Build Revit 2020-2024 (.NET Framework 4.8)
+        run: |
+          foreach ($configuration in @("R20", "R21", "R22", "R23", "R24")) {
+            Write-Host "::group::Release $configuration"
+            msbuild mcp-servers-for-revit.sln -p:Configuration="Release $configuration" -restore
+            if ($LASTEXITCODE -ne 0) { throw "Release $configuration failed" }
+            Write-Host "::endgroup::"
+          }
+        shell: pwsh
+
+      - name: Build Revit 2025-2027 (.NET 8 and .NET 10)
+        run: |
+          foreach ($configuration in @("R25", "R26", "R27")) {
+            Write-Host "::group::Release $configuration"
+            dotnet build mcp-servers-for-revit.sln -c "Release $configuration"
+            if ($LASTEXITCODE -ne 0) { throw "Release $configuration failed" }
+            Write-Host "::endgroup::"
+          }
+        shell: pwsh
+
+      - name: Assemble installer payload
+        run: ./scripts/build-installer-payload.ps1 -ServerPublishDir server-publish
+        shell: pwsh
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+        shell: pwsh
+
+      - name: Compile installer
+        run: |
+          $version = "0.0.${{ github.run_number }}"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DAppVersion=$version installer\mcp-servers-for-revit.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
+        shell: pwsh
+
+      # Downloadable from the run summary, so the wizard can be tried on a real machine
+      # before anything is tagged for release.
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer
+          path: installer-output/*.exe
+          retention-days: 14
